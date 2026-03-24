@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beep Barra - Sistema de Chamada</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f0f2f5; font-family: sans-serif; }
+        .calendar-day { 
+            aspect-ratio: 1; cursor: pointer; border: 1px solid #dee2e6; 
+            display: flex; align-items: center; justify-content: center; 
+            border-radius: 12px; background: white; color: #333; font-weight: bold;
+        }
+        .calendar-day.active { background: #00796b !important; color: white !important; }
+        .calendar-day.today { border: 2px solid #ffc107; background: #fffbe6; }
+        .nav-pills .nav-link.active { background-color: #00796b !important; }
+        .nav-link { color: #00796b; font-weight: bold; }
+        .card { border: none; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .btn-success { background-color: #00796b; border: none; }
+        .status-btn { font-size: 1.8rem; cursor: pointer; user-select: none; }
+    </style>
+</head>
+<body class="py-3">
+    <div class="container">
+        <ul class="nav nav-pills nav-fill mb-3 bg-white p-2 rounded-pill shadow-sm" id="pills-tab" role="tablist">
+            <li class="nav-item"><button class="nav-link active rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-chamada">📋 Chamada</button></li>
+            <li class="nav-item"><button class="nav-link rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-equipe" onclick="renderEquipe()">👥 Equipe</button></li>
+        </ul>
+
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="tab-chamada">
+                <div class="card mb-3"><div class="card-body d-flex gap-2">
+                    <select id="selMes" class="form-select" onchange="renderCalendar()"></select>
+                    <select id="selAno" class="form-select" onchange="renderCalendar()"></select>
+                </div></div>
+                <div class="row g-2 mb-4" id="calendarGrid"></div>
+                <div id="chamadaArea" style="display:none;" class="card mb-5">
+                    <div class="card-header bg-white py-3 text-center"><h5 class="mb-0 text-primary" id="tituloData"></h5></div>
+                    <table class="table align-middle mb-0"><tbody id="listaCorpo"></tbody></table>
+                    <div class="card-footer bg-white p-3">
+                        <textarea id="obsText" class="form-control" rows="2" placeholder="Observações do dia..." oninput="salvarObs()"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="tab-equipe">
+                <div class="card mb-3"><div class="card-body">
+                    <h6 class="fw-bold mb-3">Gestão de Funcionários</h6>
+                    <div class="row g-2">
+                        <div class="col-7"><input type="text" id="nomeF" class="form-control" placeholder="Nome Completo"></div>
+                        <div class="col-5"><input type="text" id="horaF" class="form-control" placeholder="Ex: 06:00-12:00"></div>
+                        <div class="col-12"><button class="btn btn-success w-100 fw-bold" onclick="addFunc()">ADICIONAR NOVO</button></div>
+                    </div>
+                </div></div>
+                
+                <div class="card overflow-hidden mb-4">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light"><tr><th class="ps-3">Nome</th><th class="text-end pe-3">Ação</th></tr></thead>
+                        <tbody id="corpoEquipe"></tbody>
+                    </table>
+                </div>
+
+                <div class="card border-warning">
+                    <div class="card-body text-center">
+                        <h6 class="fw-bold text-muted mb-3">Sincronização e Backup</h6>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-primary" onclick="exportarDados()">📥 Salvar Backup (Exportar)</button>
+                            <label class="btn btn-outline-danger">
+                                📤 Carregar Backup (Importar)
+                                <input type="file" id="importFile" hidden onchange="importarDados(this)">
+                            </label>
+                        </div>
+                        <small class="text-danger d-block mt-2">* Use o botão "Carregar" para restaurar seus dados após subir para o Render.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Lista iniciada vazia para ser preenchida via Importação
+        const listaVazia = [];
+
+        let dataAtiva = "";
+
+        const DB = {
+            getFuncs: () => JSON.parse(localStorage.getItem('b_funcs') || JSON.stringify(listaVazia)),
+            setFuncs: (d) => localStorage.setItem('b_funcs', JSON.stringify(d)),
+            getPres: () => JSON.parse(localStorage.getItem('b_pres') || '{}'),
+            setPres: (d) => localStorage.setItem('b_pres', JSON.stringify(d)),
+            getObs: () => JSON.parse(localStorage.getItem('b_obs') || '{}'),
+            setObs: (d) => localStorage.setItem('b_obs', JSON.stringify(d))
+        };
+
+        function renderEquipe() {
+            const f = DB.getFuncs().sort((a,b) => a.nome.localeCompare(b.nome));
+            document.getElementById('corpoEquipe').innerHTML = f.length ? f.map((x, i) => `
+                <tr><td class="ps-3"><strong>${x.nome}</strong><br><small>${x.horario}</small></td>
+                <td class="text-end pe-3"><button class="btn btn-sm btn-outline-danger" onclick="delFunc('${x.nome}')">Excluir</button></td></tr>`).join('') 
+                : '<tr><td colspan="2" class="text-center p-4 text-muted">Nenhum funcionário cadastrado. Importe um backup!</td></tr>';
+        }
+
+        function addFunc() {
+            const n = document.getElementById('nomeF').value.toUpperCase().trim();
+            const h = document.getElementById('horaF').value.trim();
+            if(!n) return;
+            const f = DB.getFuncs(); f.push({nome: n, horario: h});
+            DB.setFuncs(f); renderEquipe();
+            document.getElementById('nomeF').value = ""; document.getElementById('horaF').value = "";
+        }
+
+        function delFunc(nome) {
+            if(confirm(`Remover ${nome}?`)) {
+                const f = DB.getFuncs().filter(x => x.nome !== nome);
+                DB.setFuncs(f); renderEquipe();
+            }
+        }
+
+        function abrirDia(iso, el) {
+            dataAtiva = iso;
+            document.querySelectorAll('.calendar-day').forEach(d => d.classList.remove('active'));
+            if(el) el.classList.add('active');
+            
+            document.getElementById('chamadaArea').style.display = 'block';
+            document.getElementById('tituloData').innerText = iso.split('-').reverse().join('/');
+            
+            const f = DB.getFuncs().sort((a,b) => a.nome.localeCompare(b.nome));
+            const p = DB.getPres()[iso] || {};
+            document.getElementById('listaCorpo').innerHTML = f.map(x => `
+                <tr><td class="ps-3"><strong>${x.nome}</strong><br><small>${x.horario}</small></td>
+                <td class="text-end pe-4 status-btn" onclick="toggle('${x.nome}')">${p[x.nome] ? '✅' : '⬜'}</td></tr>`).join('');
+            document.getElementById('obsText').value = DB.getObs()[iso] || "";
+        }
+
+        function toggle(n) {
+            const p = DB.getPres(); 
+            if(!p[dataAtiva]) p[dataAtiva] = {};
+            
+            const estaMarcado = p[dataAtiva][n];
+            const acao = estaMarcado ? "REMOVER a presença" : "CONFIRMAR a presença";
+            
+            if(confirm(`Deseja realmente ${acao} de ${n}?`)) {
+                p[dataAtiva][n] = !p[dataAtiva][n];
+                DB.setPres(p); 
+                const elAtivo = document.querySelector('.calendar-day.active');
+                abrirDia(dataAtiva, elAtivo);
+            }
+        }
+
+        function salvarObs() { const o = DB.getObs(); o[dataAtiva] = document.getElementById('obsText').value; DB.setObs(o); }
+
+        function renderCalendar() {
+            const grid = document.getElementById('calendarGrid'); grid.innerHTML = "";
+            const m = document.getElementById('selMes').value, a = document.getElementById('selAno').value;
+            const dias = new Date(a, m, 0).getDate(), hoje = new Date();
+            for(let d=1; d<=dias; d++) {
+                const div = document.createElement('div'); div.className = "col-2 col-md-1 calendar-day";
+                const iso = `${a}-${m.padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                if(d==hoje.getDate() && m==(hoje.getMonth()+1) && a==hoje.getFullYear()) div.classList.add('today');
+                div.innerText = d; div.onclick = () => abrirDia(iso, div); grid.appendChild(div);
+            }
+        }
+
+        function exportarDados() {
+            const dados = { funcs: DB.getFuncs(), pres: DB.getPres(), obs: DB.getObs() };
+            const blob = new Blob([JSON.stringify(dados, null, 2)], {type: 'application/json'});
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+            a.download = `backup_beep_barra_${new Date().toISOString().slice(0,10)}.json`; a.click();
+        }
+
+        function importarDados(input) {
+            const file = input.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const dados = JSON.parse(e.target.result);
+                    if(confirm("Isso apagará os dados locais deste navegador. Confirmar importação?")) {
+                        if(dados.funcs) DB.setFuncs(dados.funcs);
+                        if(dados.pres) DB.setPres(dados.pres);
+                        if(dados.obs) DB.setObs(dados.obs);
+                        alert("Dados restaurados com sucesso!");
+                        location.reload();
+                    }
+                } catch(err) { alert("Arquivo inválido!"); }
+            };
+            reader.readAsText(file);
+        }
+
+        (function init() {
+            const h = new Date();
+            const meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+            meses.forEach((m, i) => document.getElementById('selMes').innerHTML += `<option value="${i+1}" ${i===h.getMonth()?'selected':''}>${m}</option>`);
+            for(let a=2025; a<=2026; a++) document.getElementById('selAno').innerHTML += `<option value="${a}" ${a===h.getFullYear()?'selected':''}>${a}</option>`;
+            renderCalendar();
+        })();
+    </script>
+</body>
+</html>
